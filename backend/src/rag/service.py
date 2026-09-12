@@ -8,7 +8,10 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from src.rag.generator import RagStreamGenerator
-from src.rag.reranker import LexicalDenseReranker
+from src.rag.reranker import (
+    LexicalDenseReranker,
+    TransformerCrossEncoderReranker,
+)
 from src.rag.retriever import Retriever
 from src.rag.schemas import (
     ContextChunk,
@@ -39,7 +42,7 @@ class RagService:
         """Инициализирует RagService с генератором ответа, ретривером и реранкером."""
         self.generator = generator or RagStreamGenerator()
         self.retriever = retriever or Retriever()
-        self.reranker = reranker or LexicalDenseReranker()
+        self.reranker = reranker or TransformerCrossEncoderReranker()
 
     async def _retrieve_context_chunks(
         self, payload: RagQueryRequestSchema
@@ -72,6 +75,12 @@ class RagService:
         )
         await asyncio.sleep(0.01)
 
+        yield RagStatusEventSchema(
+            code="reranking",
+            message="Анализ точности найденных статей...",
+        )
+        await asyncio.sleep(0.01)
+
         # 2. Поиск источников базы знаний через Retriever
         chunks = await self._retrieve_context_chunks(payload)
 
@@ -88,10 +97,6 @@ class RagService:
             return
 
         # 3. Переранжирование найденных фрагментов
-        yield RagStatusEventSchema(
-            code="reranking",
-            message="Анализ точности найденных статей...",
-        )
         chunks = self.reranker.rerank(payload.query, chunks)
 
         yield RagSourcesEventSchema(sources=chunks)

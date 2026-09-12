@@ -18,7 +18,7 @@ import {
   submitFeedback,
   subscribeChatEvents,
 } from './services/api';
-import { getStoredUser, clearStoredAuth, fetchCurrentUser } from './services/auth';
+import { getStoredUser, clearStoredAuth, fetchCurrentUser, loginUser, DEMO_USERS } from './services/auth';
 import { isStandaloneMode, setStandaloneMode, onModeChange } from './config/mode';
 import {
   Sparkles,
@@ -789,6 +789,40 @@ export const App: React.FC = () => {
     handleSend(newContent);
   };
 
+  const handleQuickSwitchRole = async (mode: 'client' | 'operator' | 'analytics') => {
+    setViewMode(mode);
+    const demoRole =
+      mode === 'analytics'
+        ? 'supervisor'
+        : mode === 'operator'
+          ? 'operator'
+          : 'client';
+    const demoUser = DEMO_USERS.find((u) => u.role === demoRole);
+    if (demoUser) {
+      try {
+        const auth = await loginUser(
+          demoUser.email,
+          demoUser.defaultPassword || 'password123'
+        );
+        setUser(auth.user);
+      } catch (err) {
+        console.warn('Авторизация демо-пользователя:', err);
+        const dummyProfile: UserProfile = {
+          id: `demo-${demoUser.role}`,
+          role_code: demoUser.role,
+          email: demoUser.email,
+          full_name: demoUser.name,
+          company_name: demoUser.company,
+          inn: demoUser.inn,
+        };
+        setUser(dummyProfile);
+        try {
+          localStorage.setItem('portal_auth_user', JSON.stringify(dummyProfile));
+        } catch {}
+      }
+    }
+  };
+
   const handleLogout = () => {
     clearStoredAuth();
     setUser(null);
@@ -820,28 +854,32 @@ export const App: React.FC = () => {
 
   if (viewMode === 'analytics') {
     return (
-      <div className="h-dvh w-full overflow-hidden bg-[#F5F6F8]">
-        <SupervisorDashboard
-          onLogout={handleLogout}
-          onBackToOperator={() => setViewMode('operator')}
-        />
+      <div className="h-dvh w-full flex flex-col overflow-hidden bg-[#F5F6F8]">
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <SupervisorDashboard
+            onLogout={handleLogout}
+            onBackToOperator={() => handleQuickSwitchRole('operator')}
+          />
+        </div>
       </div>
     );
   }
 
   if (viewMode === 'operator') {
     return (
-      <div className="h-dvh w-full overflow-hidden bg-white">
-        <OperatorWorkspace
-          user={user}
-          onLogout={handleLogout}
-          onSwitchToClientMode={() => setViewMode('client')}
-          onSwitchToAnalyticsMode={
-            user?.role_code === 'supervisor' || user?.role_code === 'admin'
-              ? () => setViewMode('analytics')
-              : undefined
-          }
-        />
+      <div className="h-dvh w-full flex flex-col overflow-hidden bg-white">
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <OperatorWorkspace
+            user={user}
+            onLogout={handleLogout}
+            onSwitchToClientMode={() => handleQuickSwitchRole('client')}
+            onSwitchToAnalyticsMode={
+              user?.role_code === 'supervisor' || user?.role_code === 'admin'
+                ? () => handleQuickSwitchRole('analytics')
+                : undefined
+            }
+          />
+        </div>
         {isAuthOpen && (
           <AuthPage
             onSuccess={(authedUser) => {
@@ -849,7 +887,10 @@ export const App: React.FC = () => {
               setIsAuthOpen(false);
               if (authedUser.role_code === 'supervisor') {
                 setViewMode('analytics');
-              } else if (authedUser.role_code === 'operator' || authedUser.role_code === 'admin') {
+              } else if (
+                authedUser.role_code === 'operator' ||
+                authedUser.role_code === 'admin'
+              ) {
                 setViewMode('operator');
               } else {
                 setViewMode('client');

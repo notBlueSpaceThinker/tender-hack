@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.models import UserModel
 from src.chat.models import (
+    TERMINAL_TICKET_STATUSES,
     ChatModel,
     MessageModel,
     MessageModerationStatus,
@@ -19,7 +20,6 @@ from src.chat.models import (
     TicketModel,
     TicketPriority,
     TicketStatus,
-    TERMINAL_TICKET_STATUSES,
 )
 from src.chat.moderation import (
     ProfanityModerator,
@@ -405,6 +405,18 @@ class ChatService:
         if route_output.error_codes:
             active_ticket.priority = TicketPriority.P0
 
+        if route_output.support_line:
+            from sqlalchemy import select
+
+            from src.operators.models import SupportLineModel
+
+            line_stmt = select(SupportLineModel.id).where(
+                SupportLineModel.code == route_output.support_line
+            )
+            matched_line_id = (await self.session.scalars(line_stmt)).first()
+            if matched_line_id is not None:
+                active_ticket.line_id = matched_line_id
+
         await self.ticket_repo.update(active_ticket)
         await self.session.commit()
 
@@ -559,12 +571,11 @@ class ChatService:
             return
 
         # 5. Полноценный запуск RAG с контекстом диалога
-        effective_query = (
-            route_output.standalone_query.strip()
-            if getattr(route_output, "standalone_query", None)
-            and route_output.standalone_query.strip()
-            else payload.text
-        )
+        effective_query = payload.text
+        if getattr(route_output, "standalone_query", None):
+            sq = route_output.standalone_query.strip()
+            if sq and len(sq) <= 2000 and "ИСТОРИЯ ДИАЛОГА" not in sq:
+                effective_query = sq
         bot_message_id = uuid6.uuid7()
         rag_request = RagQueryRequestSchema(
             query=effective_query,

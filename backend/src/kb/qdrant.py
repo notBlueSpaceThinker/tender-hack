@@ -289,7 +289,26 @@ class HybridEmbeddingService:
             _LOAD_FAILED = True
 
     def generate_dense_vector(self, text: str) -> list[float]:
-        """Генерирует плотный 1024D вектор."""
+        """Генерирует плотный 1024D вектор через Ollama (AMD GPU) или PyTorch с детерминированным фолбэком."""
+        # 1. Аппаратный инференс через локальный Ollama на AMD GPU (bge-m3)
+        try:
+            import json
+            import urllib.request
+
+            req = urllib.request.Request(
+                "http://127.0.0.1:11434/api/embeddings",
+                data=json.dumps({"model": "bge-m3", "prompt": text}).encode(
+                    "utf-8"
+                ),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=10.0) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                if "embedding" in data and len(data["embedding"]) == self.dim:
+                    return data["embedding"]
+        except Exception:
+            pass
+
         self._ensure_dense_model()
         if _SHARED_DENSE_MODEL is not None and _SHARED_TOKENIZER is not None:
             try:
